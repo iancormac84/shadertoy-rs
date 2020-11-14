@@ -2,33 +2,17 @@ extern crate futures;
 extern crate wgpu;
 extern crate winit;
 
+mod simple_error;
+
 use std::error::Error;
-use std::fmt::{Display, Formatter};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::ControlFlow;
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowBuilder};
 
+use simple_error::*;
+
 //glslangValidator -V shader.vert -o shader.vert.spv
-
-#[derive(Debug)]
-struct StringError {
-    message: &'static str,
-}
-
-impl StringError {
-    fn new(message: &'static str) -> StringError {
-        StringError { message }
-    }
-}
-
-impl Display for StringError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl Error for StringError {}
 
 fn render(context: &mut Context) -> Result<(), Box<dyn Error>> {
     let frame = context.swap_chain.get_current_frame()?.output;
@@ -94,7 +78,7 @@ async fn setup(window: Window) -> Result<Context, Box<dyn Error>> {
             compatible_surface: Some(&surface),
         })
         .await
-        .ok_or_else(|| StringError::new("Could not find appropriate adapater"))?;
+        .ok_or_else(|| SimpleError::new("Could not find appropriate adapater"))?;
 
     let (device, queue) = adapter
         .request_device(
