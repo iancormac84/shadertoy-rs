@@ -74,6 +74,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2e8c087f005730276d1096a652e92a8bacee2e2472bcc9715a74d2bec38b5820"
 
 [[package]]
+name = "bytemuck"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41aa2ec95ca3b5c54cf73c91acf06d24f4495d5f1b1c12506ae3483d646177ac"
+
+[[package]]
 name = "byteorder"
 version = "1.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -608,6 +614,46 @@ name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
+
+[[package]]
+name = "imgui"
+version = "0.5.0"
+source = "git+https://github.com/Gekkio/imgui-rs?branch=master#16973bdff3be18d1b9731ad705dfd2eed3bb5ac9"
+dependencies = [
+ "bitflags",
+ "imgui-sys",
+ "lazy_static",
+ "parking_lot",
+]
+
+[[package]]
+name = "imgui-sys"
+version = "0.5.0"
+source = "git+https://github.com/Gekkio/imgui-rs?branch=master#16973bdff3be18d1b9731ad705dfd2eed3bb5ac9"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "imgui-wgpu"
+version = "0.10.0"
+source = "git+https://github.com/Yatekii/imgui-wgpu-rs?branch=master#fce781b5aaa9de40c98a1e5aa187d587c84b9c4b"
+dependencies = [
+ "bytemuck",
+ "imgui",
+ "log",
+ "smallvec",
+ "wgpu",
+]
+
+[[package]]
+name = "imgui-winit-support"
+version = "0.6.0"
+source = "git+https://github.com/Gekkio/imgui-rs?branch=master#16973bdff3be18d1b9731ad705dfd2eed3bb5ac9"
+dependencies = [
+ "imgui",
+ "winit",
+]
 
 [[package]]
 name = "inplace_it"
@@ -1498,6 +1544,9 @@ name = "wgpu-experiments"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "imgui",
+ "imgui-wgpu",
+ "imgui-winit-support",
  "wgpu",
  "winit",
 ]

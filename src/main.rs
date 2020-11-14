@@ -1,9 +1,13 @@
 extern crate futures;
+extern crate imgui;
+extern crate imgui_winit_support;
 extern crate wgpu;
 extern crate winit;
 
 mod simple_error;
 
+use imgui::*;
+use imgui_winit_support::*;
 use std::error::Error;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::ControlFlow;
@@ -16,6 +20,41 @@ use simple_error::*;
 
 fn render(context: &mut Context) -> Result<(), Box<dyn Error>> {
     let frame = context.swap_chain.get_current_frame()?.output;
+
+    let imgui = &mut context.imgui;
+    context
+        .imgui_platform
+        .prepare_frame(imgui.io_mut(), &context.window)?;
+
+    let ui = imgui.frame();
+
+    {
+        let window = imgui::Window::new(im_str!("Hello world"));
+        window
+            .size([300.0, 100.0], Condition::FirstUseEver)
+            .build(&ui, || {
+                ui.text(im_str!("Hello world!"));
+                ui.text(im_str!("This...is...imgui-rs on WGPU!"));
+                ui.separator();
+                let mouse_pos = ui.io().mouse_pos;
+                ui.text(im_str!(
+                    "Mouse Position: ({:.1},{:.1})",
+                    mouse_pos[0],
+                    mouse_pos[1]
+                ));
+            });
+
+        let window = imgui::Window::new(im_str!("Hello too"));
+        window
+            .size([400.0, 200.0], Condition::FirstUseEver)
+            .position([400.0, 200.0], Condition::FirstUseEver)
+            .build(&ui, || {
+                ui.text(im_str!("Frametime: {:?}", 100));
+            });
+
+        ui.show_demo_window(&mut context.demo_open);
+    }
+
     let mut encoder = context
         .device
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -35,6 +74,10 @@ fn render(context: &mut Context) -> Result<(), Box<dyn Error>> {
         });
         render_pass.set_pipeline(&context.render_pipeline);
         render_pass.draw(0..3, 0..1);
+
+        let renderer = &mut context.imgui_renderer;
+        renderer.render(ui.render(), &context.queue, &context.device, &mut render_pass)
+        .map_err(|_| SimpleError::new("Error rendering imgui"))?;
     }
 
     context.queue.submit(Some(encoder.finish()));
@@ -55,9 +98,14 @@ struct Context {
     swap_chain_descriptor: wgpu::SwapChainDescriptor,
     swap_chain: wgpu::SwapChain,
     queue: wgpu::Queue,
+    imgui: imgui::Context,
+    imgui_platform: imgui_winit_support::WinitPlatform,
+    imgui_renderer: imgui_wgpu::Renderer,
+    demo_open: bool,
 }
 
 async fn setup(window: Window) -> Result<Context, Box<dyn Error>> {
+    //set up wgpu
     let window_size = window.inner_size();
 
     let swap_chain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
@@ -69,7 +117,6 @@ async fn setup(window: Window) -> Result<Context, Box<dyn Error>> {
     for adapter in instance.enumerate_adapters(wgpu::BackendBit::PRIMARY) {
         println!("  {:?}", adapter.get_info());
     }
-
     println!();
 
     let adapter = instance
@@ -137,6 +184,35 @@ async fn setup(window: Window) -> Result<Context, Box<dyn Error>> {
 
     let swap_chain = device.create_swap_chain(&surface, &swap_chain_descriptor);
 
+    //set up imgui
+    let hidpi_factor = window.scale_factor();
+    let mut imgui = imgui::Context::create();
+    let mut platform = WinitPlatform::init(&mut imgui);
+    platform.attach_window(imgui.io_mut(), &window, HiDpiMode::Default);
+    imgui.set_ini_filename(None);
+
+    let font_size = (13.0 * hidpi_factor) as f32;
+    imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
+
+    imgui
+        .fonts()
+        .add_font(&[imgui::FontSource::DefaultFontData {
+            config: Some(imgui::FontConfig {
+                oversample_h: 1,
+                pixel_snap_h: true,
+                size_pixels: font_size,
+                ..Default::default()
+            }),
+        }]);
+
+    //set up imgui_wgpu
+    let renderer_config = imgui_wgpu::RendererConfig {
+        texture_format: swap_chain_descriptor.format,
+        ..Default::default()
+    };
+
+    let renderer = imgui_wgpu::Renderer::new(&mut imgui, &device, &queue, renderer_config);
+
     Ok(Context {
         window,
         surface,
@@ -149,8 +225,13 @@ async fn setup(window: Window) -> Result<Context, Box<dyn Error>> {
         swap_chain_descriptor,
         swap_chain,
         queue,
+        imgui,
+        imgui_renderer: renderer,
+        imgui_platform: platform,
+        demo_open: true
     })
 }
+
 async fn run() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
@@ -191,6 +272,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
             }
             _ => {}
         }
+
+        &context.imgui_platform.handle_event(context.imgui.io_mut(), &context.window, &event);
     });
 }
 
