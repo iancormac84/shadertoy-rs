@@ -7,7 +7,7 @@ use std::fmt::{Display, Formatter};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::ControlFlow;
 use winit::event_loop::EventLoop;
-use winit::window::WindowBuilder;
+use winit::window::{Window, WindowBuilder};
 
 //glslangValidator -V shader.vert -o shader.vert.spv
 
@@ -30,16 +30,13 @@ impl Display for StringError {
 
 impl Error for StringError {}
 
-fn render(
-    device: &wgpu::Device,
-    swap_chain: &mut wgpu::SwapChain,
-    queue: &wgpu::Queue,
-    render_pipeline: &wgpu::RenderPipeline,
-) -> Result<(), Box<dyn Error>> {
-    let frame = swap_chain.get_current_frame()?.output;
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("WGPU Command Encoder Descriptor"),
-    });
+fn render(context: &mut Context) -> Result<(), Box<dyn Error>> {
+    let frame = context.swap_chain.get_current_frame()?.output;
+    let mut encoder = context
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("WGPU Command Encoder Descriptor"),
+        });
     {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
@@ -52,21 +49,31 @@ fn render(
             }],
             depth_stencil_attachment: None,
         });
-        render_pass.set_pipeline(render_pipeline);
+        render_pass.set_pipeline(&context.render_pipeline);
         render_pass.draw(0..3, 0..1);
     }
 
-    queue.submit(Some(encoder.finish()));
+    context.queue.submit(Some(encoder.finish()));
 
     Ok(())
 }
 
-async fn run() -> Result<(), Box<dyn Error>> {
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title("WGPU Experiments")
-        .build(&event_loop)?;
+#[allow(dead_code)]
+struct Context {
+    window: Window,
+    surface: wgpu::Surface,
+    adapter: wgpu::Adapter,
+    device: wgpu::Device,
+    vertex_shader: wgpu::ShaderModule,
+    fragment_shader: wgpu::ShaderModule,
+    pipeline_layout: wgpu::PipelineLayout,
+    render_pipeline: wgpu::RenderPipeline,
+    swap_chain_descriptor: wgpu::SwapChainDescriptor,
+    swap_chain: wgpu::SwapChain,
+    queue: wgpu::Queue,
+}
 
+async fn setup(window: Window) -> Result<Context, Box<dyn Error>> {
     let window_size = window.inner_size();
 
     let swap_chain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
@@ -136,7 +143,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         alpha_to_coverage_enabled: false,
     });
 
-    let mut swap_chain_descriptor = wgpu::SwapChainDescriptor {
+    let swap_chain_descriptor = wgpu::SwapChainDescriptor {
         usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
         format: swap_chain_format,
         width: window_size.width,
@@ -144,19 +151,31 @@ async fn run() -> Result<(), Box<dyn Error>> {
         present_mode: wgpu::PresentMode::Mailbox,
     };
 
-    let mut swap_chain = device.create_swap_chain(&surface, &swap_chain_descriptor);
+    let swap_chain = device.create_swap_chain(&surface, &swap_chain_descriptor);
+
+    Ok(Context {
+        window,
+        surface,
+        adapter,
+        device,
+        vertex_shader,
+        fragment_shader,
+        pipeline_layout,
+        render_pipeline,
+        swap_chain_descriptor,
+        swap_chain,
+        queue,
+    })
+}
+async fn run() -> Result<(), Box<dyn Error>> {
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title("WGPU Experiments")
+        .build(&event_loop)?;
+
+    let mut context = setup(window).await?;
 
     event_loop.run(move |event, _target, control_flow| {
-        //really move all resources into this closure.
-        let _ = (
-            &adapter,
-            &device,
-            &vertex_shader,
-            &fragment_shader,
-            &pipeline_layout,
-            &swap_chain_descriptor,
-        );
-
         *control_flow = ControlFlow::Poll;
 
         match event {
@@ -164,15 +183,18 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 event: WindowEvent::Resized(size),
                 ..
             } => {
-                swap_chain_descriptor.width = size.width;
-                swap_chain_descriptor.height = size.height;
-                swap_chain = device.create_swap_chain(&surface, &swap_chain_descriptor)
+                context.swap_chain_descriptor.width = size.width;
+                context.swap_chain_descriptor.height = size.height;
+                context.swap_chain = context
+                    .device
+                    .create_swap_chain(&context.surface, &context.swap_chain_descriptor)
             }
             Event::MainEventsCleared => {
-                match render(&device, &mut swap_chain, &queue, &render_pipeline) {
+                match render(&mut context) {
                     Ok(()) => {} //render successful
                     Err(error) => {
                         println!("Encountered error: {}", error);
+                        *control_flow = ControlFlow::Exit;
                     }
                 }
             }
