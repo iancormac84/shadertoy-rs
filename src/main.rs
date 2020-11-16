@@ -1,3 +1,4 @@
+extern crate bytemuck;
 extern crate futures;
 extern crate imgui;
 extern crate imgui_winit_support;
@@ -9,51 +10,61 @@ mod simple_error;
 use imgui::*;
 use imgui_winit_support::*;
 use std::error::Error;
+use wgpu::util::DeviceExt;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::ControlFlow;
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowBuilder};
 
+use bytemuck::{Pod, Zeroable};
 use simple_error::*;
 
 //glslangValidator -V shader.vert -o shader.vert.spv
 
-fn render(context: &mut Context) -> Result<(), Box<dyn Error>> {
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct ColorsUniform {
+    triangle_color: [f32; 4],
+}
+
+fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
     let frame = context.swap_chain.get_current_frame()?.output;
 
-    let imgui = &mut context.imgui;
-    context
-        .imgui_platform
-        .prepare_frame(imgui.io_mut(), &context.window)?;
+    let device = &context.device;
+
+    let imgui = &mut gui.imgui;
+    gui.imgui_platform.prepare_frame(imgui.io_mut(), &context.window)?;
 
     let ui = imgui.frame();
 
+    let triangle_color = &mut context.triangle_color;
     {
         let window = imgui::Window::new(im_str!("Hello world"));
         window
-            .size([300.0, 100.0], Condition::FirstUseEver)
+            .size([300.0, 120.0], Condition::FirstUseEver)
             .build(&ui, || {
-                ui.text(im_str!("Hello world!"));
-                ui.text(im_str!("This...is...imgui-rs on WGPU!"));
-                ui.separator();
-                let mouse_pos = ui.io().mouse_pos;
-                ui.text(im_str!(
-                    "Mouse Position: ({:.1},{:.1})",
-                    mouse_pos[0],
-                    mouse_pos[1]
-                ));
+                imgui::ColorEdit::new(im_str!("Triangle color"), triangle_color).build(&ui);
             });
-
-        let window = imgui::Window::new(im_str!("Hello too"));
-        window
-            .size([400.0, 200.0], Condition::FirstUseEver)
-            .position([400.0, 200.0], Condition::FirstUseEver)
-            .build(&ui, || {
-                ui.text(im_str!("Frametime: {:?}", 100));
-            });
-
-        ui.show_demo_window(&mut context.demo_open);
     }
+
+    let colors_uniform = ColorsUniform {
+        triangle_color: context.triangle_color,
+    };
+
+    let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::bytes_of(&colors_uniform),
+        usage: wgpu::BufferUsage::UNIFORM,
+    });
+
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Colors bind group descriptor"),
+        layout: &context.bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::Buffer(uniform_buf.slice(..)),
+        }],
+    });
 
     let mut encoder = context
         .device
@@ -73,11 +84,18 @@ fn render(context: &mut Context) -> Result<(), Box<dyn Error>> {
             depth_stencil_attachment: None,
         });
         render_pass.set_pipeline(&context.render_pipeline);
+        render_pass.set_bind_group(0, &bind_group, &[]);
         render_pass.draw(0..3, 0..1);
 
-        let renderer = &mut context.imgui_renderer;
-        renderer.render(ui.render(), &context.queue, &context.device, &mut render_pass)
-        .map_err(|_| SimpleError::new("Error rendering imgui"))?;
+        let renderer = &mut gui.imgui_renderer;
+        renderer
+            .render(
+                ui.render(),
+                &context.queue,
+                &context.device,
+                &mut render_pass,
+            )
+            .map_err(|_| SimpleError::new("Error rendering imgui"))?;
     }
 
     context.queue.submit(Some(encoder.finish()));
@@ -93,28 +111,32 @@ struct Context {
     device: wgpu::Device,
     vertex_shader: wgpu::ShaderModule,
     fragment_shader: wgpu::ShaderModule,
+    bind_group_layout: wgpu::BindGroupLayout,
     pipeline_layout: wgpu::PipelineLayout,
     render_pipeline: wgpu::RenderPipeline,
     swap_chain_descriptor: wgpu::SwapChainDescriptor,
     swap_chain: wgpu::SwapChain,
     queue: wgpu::Queue,
-    imgui: imgui::Context,
-    imgui_platform: imgui_winit_support::WinitPlatform,
-    imgui_renderer: imgui_wgpu::Renderer,
-    demo_open: bool,
+    triangle_color: [f32; 4],
 }
 
-async fn setup(window: Window) -> Result<Context, Box<dyn Error>> {
+struct Gui {
+    imgui: imgui::Context,
+    imgui_platform: imgui_winit_support::WinitPlatform,
+    imgui_renderer: imgui_wgpu::Renderer
+}
+
+async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
     //set up wgpu
     let window_size = window.inner_size();
 
     let swap_chain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
-    let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+    let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN);
     let surface = unsafe { instance.create_surface(&window) };
 
     println!("Found these adapters:");
-    for adapter in instance.enumerate_adapters(wgpu::BackendBit::PRIMARY) {
+    for adapter in instance.enumerate_adapters(wgpu::BackendBit::VULKAN) {
         println!("  {:?}", adapter.get_info());
     }
     println!();
@@ -141,12 +163,25 @@ async fn setup(window: Window) -> Result<Context, Box<dyn Error>> {
     println!("Adapter: {:?}", adapter.get_info());
     println!("Device: {:?}", device);
 
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0, //Colors
+            visibility: wgpu::ShaderStage::FRAGMENT,
+            ty: wgpu::BindingType::UniformBuffer {
+                dynamic: false,
+                min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<ColorsUniform>() as _),
+            },
+            count: None,
+        }],
+    });
+
     let vertex_shader = device.create_shader_module(wgpu::include_spirv!("shader.vert.spv"));
     let fragment_shader = device.create_shader_module(wgpu::include_spirv!("shader.frag.spv"));
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("WGPU Pipeline Layout"),
-        bind_group_layouts: &[],
+        bind_group_layouts: &[&bind_group_layout],
         push_constant_ranges: &[],
     });
 
@@ -213,23 +248,28 @@ async fn setup(window: Window) -> Result<Context, Box<dyn Error>> {
 
     let renderer = imgui_wgpu::Renderer::new(&mut imgui, &device, &queue, renderer_config);
 
-    Ok(Context {
-        window,
-        surface,
-        adapter,
-        device,
-        vertex_shader,
-        fragment_shader,
-        pipeline_layout,
-        render_pipeline,
-        swap_chain_descriptor,
-        swap_chain,
-        queue,
-        imgui,
-        imgui_renderer: renderer,
-        imgui_platform: platform,
-        demo_open: true
-    })
+    Ok((
+        Context {
+            window,
+            surface,
+            adapter,
+            device,
+            vertex_shader,
+            fragment_shader,
+            pipeline_layout,
+            bind_group_layout,
+            render_pipeline,
+            swap_chain_descriptor,
+            swap_chain,
+            queue,
+            triangle_color: [1.0, 0.0, 0.0, 1.0],
+        },
+        Gui {
+            imgui,
+            imgui_renderer: renderer,
+            imgui_platform: platform
+        },
+    ))
 }
 
 async fn run() -> Result<(), Box<dyn Error>> {
@@ -238,7 +278,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         .with_title("WGPU Experiments")
         .build(&event_loop)?;
 
-    let mut context = setup(window).await?;
+    let (mut context, mut gui) = setup(window).await?;
 
     event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -255,7 +295,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                     .create_swap_chain(&context.surface, &context.swap_chain_descriptor)
             }
             Event::MainEventsCleared => {
-                match render(&mut context) {
+                match render(&mut context, &mut gui) {
                     Ok(()) => {} //render successful
                     Err(error) => {
                         println!("Encountered error: {}", error);
@@ -273,7 +313,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
             _ => {}
         }
 
-        &context.imgui_platform.handle_event(context.imgui.io_mut(), &context.window, &event);
+        gui.imgui_platform
+            .handle_event(gui.imgui.io_mut(), &context.window, &event);
     });
 }
 
