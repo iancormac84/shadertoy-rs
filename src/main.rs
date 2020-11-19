@@ -18,13 +18,53 @@ use winit::window::{Window, WindowBuilder};
 
 use bytemuck::{Pod, Zeroable};
 use simple_error::*;
+use std::mem;
 
-//glslangValidator -V shader.vert -o shader.vert.spv
+//glslangValidator -V src/shader.vert -o src/shader.vert.spv
+//glslangValidator -V src/shader.frag -o src/frag.vert.spv
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(Clone, Copy)]
 struct ColorsUniform {
     triangle_color: [f32; 4],
+}
+
+unsafe impl Pod for ColorsUniform {}
+unsafe impl Zeroable for ColorsUniform {}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Vertex {
+    _pos: [i8; 4],
+}
+
+unsafe impl Pod for Vertex {}
+unsafe impl Zeroable for Vertex {}
+
+fn vertex(pos: [i8; 4]) -> Vertex {
+    Vertex {
+        _pos: pos
+    }
+}
+
+fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
+    let vertex_data = [
+        //bottom left
+        vertex([-1, -1, 0, 1]),
+        //bottom right
+        vertex([1, -1, 0, 1]),
+        //top left
+        vertex([-1, 1, 0, 1]),
+        //top right
+        vertex([1, 1, 0, 1]),
+    ];
+
+    let index_data: &[u16] = &[
+        0, 1, 2, //bottom left half triangle
+        1, 2, 3  //top right triangle
+    ];
+
+    (vertex_data.to_vec(), index_data.to_vec())
 }
 
 fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
@@ -41,9 +81,9 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
     {
         let window = imgui::Window::new(im_str!("Hello world"));
         window
-            .size([300.0, 120.0], Condition::FirstUseEver)
+            .size([400.0, 400.0], Condition::FirstUseEver)
             .build(&ui, || {
-                imgui::ColorEdit::new(im_str!("Triangle color"), triangle_color).build(&ui);
+                imgui::ColorPicker::new(im_str!("Color"), triangle_color).build(&ui);
             });
     }
 
@@ -85,7 +125,9 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
         });
         render_pass.set_pipeline(&context.render_pipeline);
         render_pass.set_bind_group(0, &bind_group, &[]);
-        render_pass.draw(0..3, 0..1);
+        render_pass.set_index_buffer(context.index_buffer.slice(..));
+        render_pass.set_vertex_buffer(0, context.vertex_buffer.slice(..));
+        render_pass.draw_indexed(0..6, 0,0..1);
 
         let renderer = &mut gui.imgui_renderer;
         renderer
@@ -115,6 +157,9 @@ struct Context {
     pipeline_layout: wgpu::PipelineLayout,
     render_pipeline: wgpu::RenderPipeline,
     swap_chain_descriptor: wgpu::SwapChainDescriptor,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    index_count: usize,
     swap_chain: wgpu::SwapChain,
     queue: wgpu::Queue,
     triangle_color: [f32; 4],
@@ -132,11 +177,11 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
 
     let swap_chain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
-    let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN);
+    let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
     let surface = unsafe { instance.create_surface(&window) };
 
     println!("Found these adapters:");
-    for adapter in instance.enumerate_adapters(wgpu::BackendBit::VULKAN) {
+    for adapter in instance.enumerate_adapters(wgpu::BackendBit::PRIMARY) {
         println!("  {:?}", adapter.get_info());
     }
     println!();
@@ -163,6 +208,20 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
     println!("Adapter: {:?}", adapter.get_info());
     println!("Device: {:?}", device);
 
+    //setup data
+    let (vertices, indices) = create_vertices();
+    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor{
+        label: None,
+        contents: bytemuck::cast_slice(&vertices),
+        usage: wgpu::BufferUsage::VERTEX
+    });
+
+    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::cast_slice(&indices),
+        usage: wgpu::BufferUsage::INDEX
+    });
+
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[wgpu::BindGroupLayoutEntry {
@@ -185,6 +244,8 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
         push_constant_ranges: &[],
     });
 
+    let vertex_mem_size = mem::size_of::<Vertex>();
+
     let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("WGPU Pipeline"),
         layout: Some(&pipeline_layout),
@@ -202,7 +263,11 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
         depth_stencil_state: None,
         vertex_state: wgpu::VertexStateDescriptor {
             index_format: wgpu::IndexFormat::Uint16,
-            vertex_buffers: &[],
+            vertex_buffers: &[wgpu::VertexBufferDescriptor {
+                stride: vertex_mem_size as wgpu::BufferAddress,
+                step_mode: wgpu::InputStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![0 => Char4]
+            }],
         },
         sample_count: 1,
         sample_mask: !0,
@@ -261,6 +326,9 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
             render_pipeline,
             swap_chain_descriptor,
             swap_chain,
+            vertex_buffer,
+            index_buffer,
+            index_count: indices.len(),
             queue,
             triangle_color: [1.0, 0.0, 0.0, 1.0],
         },

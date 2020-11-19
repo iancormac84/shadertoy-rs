@@ -15,7 +15,6 @@ imgui-wgpu = "*"
 
 [dependencies.bytemuck]
 version = "*"
-features = ["derive"]
 
 [dependencies.imgui-winit-support]
 version = "*"

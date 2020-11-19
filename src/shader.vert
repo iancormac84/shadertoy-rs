@@ -1,10 +1,11 @@
 #version 450
 
+layout (location = 0) in ivec4 position;
+
 out gl_PerVertex {
     vec4 gl_Position;
 };
 
 void main() {
-    vec2 position = vec2(gl_VertexIndex, (gl_VertexIndex & 1) * 2) - 1;
-    gl_Position = vec4(position, 0.0, 1.0);
+    gl_Position = position;
 }
