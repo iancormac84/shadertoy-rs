@@ -10,6 +10,7 @@ mod simple_error;
 use imgui::*;
 use imgui_winit_support::*;
 use std::error::Error;
+use std::time::SystemTime;
 use wgpu::util::DeviceExt;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::ControlFlow;
@@ -25,12 +26,13 @@ use std::mem;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct ColorsUniform {
-    triangle_color: [f32; 4],
+struct Uniforms {
+    resolution: [f32; 4],
+    time: f32,
 }
 
-unsafe impl Pod for ColorsUniform {}
-unsafe impl Zeroable for ColorsUniform {}
+unsafe impl Pod for Uniforms {}
+unsafe impl Zeroable for Uniforms {}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -42,9 +44,7 @@ unsafe impl Pod for Vertex {}
 unsafe impl Zeroable for Vertex {}
 
 fn vertex(pos: [i8; 4]) -> Vertex {
-    Vertex {
-        _pos: pos
-    }
+    Vertex { _pos: pos }
 }
 
 fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
@@ -61,7 +61,7 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 
     let index_data: &[u16] = &[
         0, 1, 2, //bottom left half triangle
-        1, 2, 3  //top right triangle
+        1, 2, 3, //top right triangle
     ];
 
     (vertex_data.to_vec(), index_data.to_vec())
@@ -87,13 +87,25 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
             });
     }
 
-    let colors_uniform = ColorsUniform {
-        triangle_color: context.triangle_color,
+    let duration = SystemTime::now()
+        .duration_since(context.start_time)?
+        .as_millis() as f64;
+    let time = (duration / 1000.0) as f32;
+
+    let resolution = [
+        context.swap_chain_descriptor.width as f32,
+        context.swap_chain_descriptor.height as f32,
+        0.0,
+        0.0
+    ];
+    let uniforms = Uniforms {
+        resolution,
+        time,
     };
 
     let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
-        contents: bytemuck::bytes_of(&colors_uniform),
+        contents: bytemuck::bytes_of(&uniforms),
         usage: wgpu::BufferUsage::UNIFORM,
     });
 
@@ -127,7 +139,7 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
         render_pass.set_bind_group(0, &bind_group, &[]);
         render_pass.set_index_buffer(context.index_buffer.slice(..));
         render_pass.set_vertex_buffer(0, context.vertex_buffer.slice(..));
-        render_pass.draw_indexed(0..6, 0,0..1);
+        render_pass.draw_indexed(0..6, 0, 0..1);
 
         let renderer = &mut gui.imgui_renderer;
         renderer
@@ -162,20 +174,21 @@ struct Context {
     index_count: usize,
     swap_chain: wgpu::SwapChain,
     queue: wgpu::Queue,
+    start_time: SystemTime,
     triangle_color: [f32; 4],
 }
 
 struct Gui {
     imgui: imgui::Context,
     imgui_platform: imgui_winit_support::WinitPlatform,
-    imgui_renderer: imgui_wgpu::Renderer
+    imgui_renderer: imgui_wgpu::Renderer,
 }
 
 async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
     //set up wgpu
     let window_size = window.inner_size();
 
-    let swap_chain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
+    let swap_chain_format = wgpu::TextureFormat::Bgra8Unorm;
 
     let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
     let surface = unsafe { instance.create_surface(&window) };
@@ -210,16 +223,16 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
 
     //setup data
     let (vertices, indices) = create_vertices();
-    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor{
+    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
         contents: bytemuck::cast_slice(&vertices),
-        usage: wgpu::BufferUsage::VERTEX
+        usage: wgpu::BufferUsage::VERTEX,
     });
 
     let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
         contents: bytemuck::cast_slice(&indices),
-        usage: wgpu::BufferUsage::INDEX
+        usage: wgpu::BufferUsage::INDEX,
     });
 
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -229,7 +242,7 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
             visibility: wgpu::ShaderStage::FRAGMENT,
             ty: wgpu::BindingType::UniformBuffer {
                 dynamic: false,
-                min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<ColorsUniform>() as _),
+                min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<Uniforms>() as _),
             },
             count: None,
         }],
@@ -266,7 +279,7 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
             vertex_buffers: &[wgpu::VertexBufferDescriptor {
                 stride: vertex_mem_size as wgpu::BufferAddress,
                 step_mode: wgpu::InputStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Char4]
+                attributes: &wgpu::vertex_attr_array![0 => Char4],
             }],
         },
         sample_count: 1,
@@ -330,12 +343,13 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
             index_buffer,
             index_count: indices.len(),
             queue,
+            start_time: SystemTime::now(),
             triangle_color: [1.0, 0.0, 0.0, 1.0],
         },
         Gui {
             imgui,
             imgui_renderer: renderer,
-            imgui_platform: platform
+            imgui_platform: platform,
         },
     ))
 }
@@ -344,6 +358,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("WGPU Experiments")
+        .with_inner_size(winit::dpi::PhysicalSize::new(800,450))
         .build(&event_loop)?;
 
     let (mut context, mut gui) = setup(window).await?;
