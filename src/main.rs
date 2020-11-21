@@ -4,6 +4,7 @@ extern crate imgui;
 extern crate imgui_winit_support;
 extern crate wgpu;
 extern crate winit;
+extern crate shaderc;
 
 mod simple_error;
 
@@ -248,8 +249,16 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
         }],
     });
 
-    let vertex_shader = device.create_shader_module(wgpu::include_spirv!("shader.vert.spv"));
-    let fragment_shader = device.create_shader_module(wgpu::include_spirv!("shader.frag.spv"));
+    let vertex_shader_text = std::fs::read_to_string("src/shader.vert")?;
+
+    let mut compiler = shaderc::Compiler::new().ok_or_else(|| SimpleError::new("Could not create shader compiler"))?;
+    let options = shaderc::CompileOptions::new().ok_or_else(|| SimpleError::new("Could not create compile options"))?;
+    let binary = compiler.compile_into_spirv(&vertex_shader_text, shaderc::ShaderKind::Vertex, "shader_vert", "main", Some(&options))?;
+    let vertex_shader = device.create_shader_module(wgpu::util::make_spirv(binary.as_binary_u8()));
+
+    let fragment_shader_text = std::fs::read_to_string("src/shader.frag")?;
+    let binary = compiler.compile_into_spirv(&fragment_shader_text, shaderc::ShaderKind::Fragment, "shader.frag", "main", Some(&options))?;
+    let fragment_shader = device.create_shader_module(wgpu::util::make_spirv(binary.as_binary_u8()));
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("WGPU Pipeline Layout"),

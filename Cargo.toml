@@ -12,6 +12,7 @@ wgpu = "*"
 futures = "0.3"
 imgui = "*"
 imgui-wgpu = "*"
+shaderc = "*"
 
 [dependencies.bytemuck]
 version = "*"
