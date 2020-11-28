@@ -2,9 +2,9 @@ extern crate bytemuck;
 extern crate futures;
 extern crate imgui;
 extern crate imgui_winit_support;
+extern crate shaderc;
 extern crate wgpu;
 extern crate winit;
-extern crate shaderc;
 
 mod simple_error;
 
@@ -90,21 +90,28 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 
 fn compile_shader(path: &Path) -> Result<shaderc::CompilationArtifact, Box<dyn Error>> {
     let shader_text = std::fs::read_to_string(path)?;
-    let mut compiler = shaderc::Compiler::new().ok_or_else(|| SimpleError::new("Could not create shader compiler"))?;
-    let options = shaderc::CompileOptions::new().ok_or_else(|| SimpleError::new("Could not create compile options"))?;
-    let binary = compiler.compile_into_spirv(&shader_text, shaderc::ShaderKind::Fragment, "shader_vert", "main", Some(&options))?;
+    let mut compiler = shaderc::Compiler::new()
+        .ok_or_else(|| SimpleError::new("Could not create shader compiler"))?;
+    let options = shaderc::CompileOptions::new()
+        .ok_or_else(|| SimpleError::new("Could not create compile options"))?;
+    let binary = compiler.compile_into_spirv(
+        &shader_text,
+        shaderc::ShaderKind::Fragment,
+        "shader_vert",
+        "main",
+        Some(&options),
+    )?;
     Ok(binary)
 }
 
 #[derive(Debug)]
 struct Data {
-    string: String
+    string: String,
 }
 
 impl Drop for Data {
     fn drop(&mut self) {
         println!("Dropping self: {}", self.string);
-
     }
 }
 
@@ -114,7 +121,8 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
     let device = &context.device;
 
     let imgui = &mut gui.imgui;
-    gui.imgui_platform.prepare_frame(imgui.io_mut(), &context.window)?;
+    gui.imgui_platform
+        .prepare_frame(imgui.io_mut(), &context.window)?;
 
     let ui = imgui.frame();
 
@@ -147,18 +155,22 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
             match shader {
                 Ok(artifact) => {
                     println!("Succesfully compiled shader");
-                    let module = device.create_shader_module(wgpu::util::make_spirv(artifact.as_binary_u8()));
+                    let module = device
+                        .create_shader_module(wgpu::util::make_spirv(artifact.as_binary_u8()));
                     context.fragment_shader = module;
-                    let new = create_render_pipeline(&context.device,
+                    let new = create_render_pipeline(
+                        &context.device,
                         &context.vertex_shader,
                         &context.fragment_shader,
                         &context.pipeline_layout,
-                        wgpu::TextureFormat::Bgra8Unorm);
+                        wgpu::TextureFormat::Bgra8Unorm,
+                    );
                     context.render_pipeline = new;
                 }
-                Err(error) => {println!("Error: {:?}", error);}
+                Err(error) => {
+                    println!("Error: {:?}", error);
+                }
             }
-
         }
 
         // ui.show_demo_window(&mut context.demo_window_open);
@@ -173,12 +185,9 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
         context.swap_chain_descriptor.width as f32,
         context.swap_chain_descriptor.height as f32,
         0.0,
-        0.0
+        0.0,
     ];
-    let uniforms = Uniforms {
-        resolution,
-        time,
-    };
+    let uniforms = Uniforms { resolution, time };
 
     let uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
@@ -263,13 +272,13 @@ struct Gui {
     imgui_renderer: imgui_wgpu::Renderer,
 }
 
-fn create_render_pipeline(device: &wgpu::Device,
+fn create_render_pipeline(
+    device: &wgpu::Device,
     vertex_shader_module: &wgpu::ShaderModule,
     fragment_shader_module: &wgpu::ShaderModule,
     pipeline_layout: &wgpu::PipelineLayout,
-    swap_chain_format: wgpu::TextureFormat) -> wgpu::RenderPipeline {
-
-
+    swap_chain_format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
     let vertex_mem_size = mem::size_of::<Vertex>();
 
     return device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -302,7 +311,6 @@ fn create_render_pipeline(device: &wgpu::Device,
 }
 
 async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
-
     let shaders = list_shaders("shaders").unwrap_or(vec![]);
     println!("Shaders: {:?}", shaders);
 
@@ -356,18 +364,31 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
 
     let vertex_shader_text = std::fs::read_to_string("src/shader.vert")?;
 
-    let mut compiler = shaderc::Compiler::new().ok_or_else(|| SimpleError::new("Could not create shader compiler"))?;
-    let options = shaderc::CompileOptions::new().ok_or_else(|| SimpleError::new("Could not create compile options"))?;
-    let binary = compiler.compile_into_spirv(&vertex_shader_text, shaderc::ShaderKind::Vertex, "shader_vert", "main", Some(&options))?;
+    let mut compiler = shaderc::Compiler::new()
+        .ok_or_else(|| SimpleError::new("Could not create shader compiler"))?;
+    let options = shaderc::CompileOptions::new()
+        .ok_or_else(|| SimpleError::new("Could not create compile options"))?;
+    let binary = compiler.compile_into_spirv(
+        &vertex_shader_text,
+        shaderc::ShaderKind::Vertex,
+        "shader_vert",
+        "main",
+        Some(&options),
+    )?;
     let vertex_shader = device.create_shader_module(wgpu::util::make_spirv(binary.as_binary_u8()));
 
     let fragment_shader_text = std::fs::read_to_string("src/shader.frag")?;
-    let binary = compiler.compile_into_spirv(&fragment_shader_text, shaderc::ShaderKind::Fragment, "shader.frag", "main", Some(&options))?;
-    let fragment_shader = device.create_shader_module(wgpu::util::make_spirv(binary.as_binary_u8()));
-
+    let binary = compiler.compile_into_spirv(
+        &fragment_shader_text,
+        shaderc::ShaderKind::Fragment,
+        "shader.frag",
+        "main",
+        Some(&options),
+    )?;
+    let fragment_shader =
+        device.create_shader_module(wgpu::util::make_spirv(binary.as_binary_u8()));
 
     let swap_chain_format = wgpu::TextureFormat::Bgra8Unorm;
-
 
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
@@ -388,9 +409,13 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
         push_constant_ranges: &[],
     });
 
-    let render_pipeline = create_render_pipeline(&device,
+    let render_pipeline = create_render_pipeline(
+        &device,
         &vertex_shader,
-        &fragment_shader, &pipeline_layout, swap_chain_format);
+        &fragment_shader,
+        &pipeline_layout,
+        swap_chain_format,
+    );
 
     let swap_chain_descriptor = wgpu::SwapChainDescriptor {
         usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
@@ -451,7 +476,7 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
             queue,
             start_time: SystemTime::now(),
             triangle_color: [1.0, 0.0, 0.0, 1.0],
-            demo_window_open: true
+            demo_window_open: true,
         },
         Gui {
             imgui,
@@ -465,7 +490,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("WGPU Experiments")
-        .with_inner_size(winit::dpi::PhysicalSize::new(1024,768))
+        .with_inner_size(winit::dpi::PhysicalSize::new(1024, 768))
         .build(&event_loop)?;
 
     let (mut context, mut gui) = setup(window).await?;
