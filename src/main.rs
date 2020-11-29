@@ -135,7 +135,6 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
             .position([0.0, 0.0], Condition::FirstUseEver)
             .size([400.0, 400.0], Condition::FirstUseEver)
             .build(&ui, || {
-                // imgui::ColorPicker::new(im_str!("Color"), triangle_color).build(&ui);
                 imgui::ComboBox::new(im_str!("Shaders")).build(&ui, || {
                     for path in shaders {
                         let label = path.to_string_lossy();
@@ -172,8 +171,6 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
                 }
             }
         }
-
-        // ui.show_demo_window(&mut context.demo_window_open);
     }
 
     let duration = SystemTime::now()
