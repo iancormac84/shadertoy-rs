@@ -133,7 +133,7 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
         let mut p = None;
         window
             .position([0.0, 0.0], Condition::FirstUseEver)
-            .size([400.0, 400.0], Condition::FirstUseEver)
+            .size([400.0, 80.0], Condition::FirstUseEver)
             .build(&ui, || {
                 imgui::ComboBox::new(im_str!("Shaders")).build(&ui, || {
                     for path in shaders {
