@@ -21,8 +21,3 @@ version = "*"
 version = "*"
 default-features = false
 features = ["winit-23"]
-
-[patch.crates-io]
-imgui = {git = "https://github.com/Gekkio/imgui-rs", branch = "master"}
-imgui-wgpu = { git = "https://github.com/Yatekii/imgui-wgpu-rs", branch = "master"}
-imgui-winit-support = {git = "https://github.com/Gekkio/imgui-rs", branch = "master"}
