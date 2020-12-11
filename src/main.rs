@@ -130,17 +130,26 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
 
     {
         let window = imgui::Window::new(im_str!("Hello world"));
+        let current_shader = context.current_shader.as_ref();
         let mut p = None;
         window
             .position([0.0, 0.0], Condition::FirstUseEver)
             .size([400.0, 80.0], Condition::FirstUseEver)
             .build(&ui, || {
-                imgui::ComboBox::new(im_str!("Shaders")).build(&ui, || {
+                let preview_value = current_shader.map(|s| ImString::new(s));
+                println!("Preview value: {:?}", preview_value);
+
+                let mut cb = imgui::ComboBox::new(im_str!("Shaders"));
+                if let Some(p) = preview_value.as_ref() {
+                    cb = cb.preview_value(p);
+                }
+                cb.build(&ui, || {
                     for path in shaders {
-                        let label = path.to_string_lossy();
-                        let imstr = ImString::new(label.as_ref());
-                        if imgui::Selectable::new(&imstr).selected(false).build(&ui) {
-                            println!("Selected {}", label);
+                        let path_string = path.to_string_lossy();
+                        let selected = matches!(current_shader, Some(p) if p == &path_string );
+                        let imstr = ImString::new(path_string.as_ref());
+                        if imgui::Selectable::new(&imstr).selected(selected).build(&ui) {
+                            println!("Selected {}", path_string);
                             p = Some(path);
                         }
                     }
@@ -148,7 +157,7 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
             });
 
         if let Some(path) = p {
-            println!("Compiling shader '{:?}'", path);
+            context.current_shader = Some(path.to_string_lossy().to_string());
             let shader = compile_shader(path);
 
             match shader {
@@ -242,6 +251,7 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
 
 #[allow(dead_code)]
 struct Context {
+    current_shader: Option<String>,
     shaders: Vec<PathBuf>,
     window: Window,
     surface: wgpu::Surface,
@@ -455,6 +465,7 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
 
     Ok((
         Context {
+            current_shader: None,
             shaders,
             window,
             surface,
