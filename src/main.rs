@@ -110,6 +110,31 @@ impl Drop for Data {
     }
 }
 
+fn prepare_new_shader(
+    path: &Path,
+    device: &wgpu::Device,
+    vertex_shader: &wgpu::ShaderModule,
+    pipeline_layout: &wgpu::PipelineLayout,
+) -> Result<(wgpu::ShaderModule, wgpu::RenderPipeline), Box<dyn Error>> {
+    let start = SystemTime::now();
+    let artifact = compile_shader(path)?;
+    let compilation_time = start.elapsed();
+    println!("Time to compile shader: {:?}", compilation_time);
+
+    let module = device.create_shader_module(wgpu::util::make_spirv(artifact.as_binary_u8()));
+    println!("Time to create shader module: {:?}", start.elapsed());
+    let new = create_render_pipeline(
+        device,
+        vertex_shader,
+        &module,
+        pipeline_layout,
+        wgpu::TextureFormat::Bgra8Unorm,
+    );
+    println!("Time to create new pipeline: {:?}", start.elapsed());
+    println!("Time to swap pipelines: {:?}", start.elapsed());
+    Ok((module, new))
+}
+
 fn render(context: &mut RenderContext, app: &mut App, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
     let frame = context.swap_chain.get_current_frame()?.output;
 
@@ -126,7 +151,7 @@ fn render(context: &mut RenderContext, app: &mut App, gui: &mut Gui) -> Result<(
     {
         let window = imgui::Window::new(im_str!("Hello world"));
         let current_shader = context.current_shader.as_ref();
-        let mut p = None;
+        let mut selected_path = None;
         window
             .position([0.0, 0.0], Condition::FirstUseEver)
             .size([400.0, 80.0], Condition::FirstUseEver)
@@ -144,33 +169,26 @@ fn render(context: &mut RenderContext, app: &mut App, gui: &mut Gui) -> Result<(
                         let imstr = ImString::new(path_string.as_ref());
                         if imgui::Selectable::new(&imstr).selected(selected).build(&ui) {
                             println!("Selected {}", path_string);
-                            p = Some(path);
+                            selected_path = Some(path);
                         }
                     }
                 });
             });
 
-        if let Some(path) = p {
-            context.current_shader = Some(path.to_string_lossy().to_string());
-            let shader = compile_shader(path);
-
-            match shader {
-                Ok(artifact) => {
-                    println!("Succesfully compiled shader");
-                    let module = device
-                        .create_shader_module(wgpu::util::make_spirv(artifact.as_binary_u8()));
-                    context.fragment_shader = module;
-                    let new = create_render_pipeline(
-                        &context.device,
-                        &context.vertex_shader,
-                        &context.fragment_shader,
-                        &context.pipeline_layout,
-                        wgpu::TextureFormat::Bgra8Unorm,
-                    );
-                    context.render_pipeline = new;
+        if let Some(path) = selected_path {
+            match prepare_new_shader(
+                path,
+                &context.device,
+                &context.vertex_shader,
+                &context.pipeline_layout,
+            ) {
+                Ok((fragment_shader, pipeline)) => {
+                    context.fragment_shader = fragment_shader;
+                    context.render_pipeline = pipeline;
+                    context.current_shader = Some(path.to_string_lossy().to_string());
                 }
                 Err(error) => {
-                    println!("Error: {:?}", error);
+                    println!("Error: {}", error);
                 }
             }
         }
@@ -281,8 +299,6 @@ fn create_render_pipeline(
     pipeline_layout: &wgpu::PipelineLayout,
     swap_chain_format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
-    let vertex_mem_size = mem::size_of::<Vertex>();
-
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("WGPU Pipeline"),
         layout: Some(pipeline_layout),
@@ -301,7 +317,7 @@ fn create_render_pipeline(
         vertex_state: wgpu::VertexStateDescriptor {
             index_format: wgpu::IndexFormat::Uint16,
             vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                stride: vertex_mem_size as wgpu::BufferAddress,
+                stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
                 step_mode: wgpu::InputStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Char4],
             }],
