@@ -136,7 +136,7 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
             .position([0.0, 0.0], Condition::FirstUseEver)
             .size([400.0, 80.0], Condition::FirstUseEver)
             .build(&ui, || {
-                let preview_value = current_shader.map(|s| ImString::new(s));
+                let preview_value = current_shader.map(ImString::new);
 
                 let mut cb = imgui::ComboBox::new(im_str!("Shaders"));
                 if let Some(p) = preview_value.as_ref() {
@@ -287,7 +287,7 @@ fn create_render_pipeline(
 ) -> wgpu::RenderPipeline {
     let vertex_mem_size = mem::size_of::<Vertex>();
 
-    return device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("WGPU Pipeline"),
         layout: Some(pipeline_layout),
         vertex_stage: wgpu::ProgrammableStageDescriptor {
@@ -313,11 +313,11 @@ fn create_render_pipeline(
         sample_count: 1,
         sample_mask: !0,
         alpha_to_coverage_enabled: false,
-    });
+    })
 }
 
 async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
-    let shaders = list_shaders("shaders").unwrap_or(vec![]);
+    let shaders = list_shaders("shaders").unwrap_or_default();
     println!("Shaders: {:?}", shaders);
 
     //set up wgpu
