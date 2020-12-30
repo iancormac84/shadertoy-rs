@@ -24,12 +24,7 @@ use std::mem;
 use std::path::*;
 
 //TODO:
-//  * list all shaders in the shaders dir
-//  * show a list of these in an imgui element
 //  * update the list when a new file is created, or when a file is deleted
-//  * let the user select one
-//  * compile that shader when selected, report errors
-//  * when successful, use the shader
 //  * watch the file for changes, if it changes recompile and, if no errors, use the result
 
 fn list_shaders(path: impl AsRef<Path>) -> Result<Vec<PathBuf>, std::io::Error> {
