@@ -110,7 +110,7 @@ impl Drop for Data {
     }
 }
 
-fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
+fn render(context: &mut RenderContext, app: &mut App, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
     let frame = context.swap_chain.get_current_frame()?.output;
 
     let device = &context.device;
@@ -177,7 +177,7 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
     }
 
     let duration = SystemTime::now()
-        .duration_since(context.start_time)?
+        .duration_since(app.start_time)?
         .as_millis() as f64;
     let time = (duration / 1000.0) as f32;
 
@@ -244,12 +244,17 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
 }
 
 #[allow(dead_code)]
-struct Context {
+struct App {
+    start_time: SystemTime,
+    triangle_color: [f32; 4],
+    demo_window_open: bool,
+}
+
+struct RenderContext {
     current_shader: Option<String>,
     shaders: Vec<PathBuf>,
     window: Window,
     surface: wgpu::Surface,
-    adapter: wgpu::Adapter,
     device: wgpu::Device,
     vertex_shader: wgpu::ShaderModule,
     fragment_shader: wgpu::ShaderModule,
@@ -259,12 +264,8 @@ struct Context {
     swap_chain_descriptor: wgpu::SwapChainDescriptor,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-    index_count: usize,
     swap_chain: wgpu::SwapChain,
     queue: wgpu::Queue,
-    start_time: SystemTime,
-    triangle_color: [f32; 4],
-    demo_window_open: bool,
 }
 
 struct Gui {
@@ -311,7 +312,7 @@ fn create_render_pipeline(
     })
 }
 
-async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
+async fn setup(window: Window) -> Result<(RenderContext, App, Gui), Box<dyn Error>> {
     let shaders = list_shaders("shaders").unwrap_or_default();
     println!("Shaders: {:?}", shaders);
 
@@ -458,12 +459,11 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
     let renderer = imgui_wgpu::Renderer::new(&mut imgui, &device, &queue, renderer_config);
 
     Ok((
-        Context {
+        RenderContext {
             current_shader: None,
             shaders,
             window,
             surface,
-            adapter,
             device,
             vertex_shader,
             fragment_shader,
@@ -474,8 +474,9 @@ async fn setup(window: Window) -> Result<(Context, Gui), Box<dyn Error>> {
             swap_chain,
             vertex_buffer,
             index_buffer,
-            index_count: indices.len(),
             queue,
+        },
+        App {
             start_time: SystemTime::now(),
             triangle_color: [1.0, 0.0, 0.0, 1.0],
             demo_window_open: true,
@@ -495,7 +496,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
         .with_inner_size(winit::dpi::PhysicalSize::new(1024, 768))
         .build(&event_loop)?;
 
-    let (mut context, mut gui) = setup(window).await?;
+    let (mut context, mut app, mut gui) = setup(window).await?;
 
     event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -512,7 +513,7 @@ async fn run() -> Result<(), Box<dyn Error>> {
                     .create_swap_chain(&context.surface, &context.swap_chain_descriptor)
             }
             Event::MainEventsCleared => {
-                match render(&mut context, &mut gui) {
+                match render(&mut context, &mut app, &mut gui) {
                     Ok(()) => {} //render successful
                     Err(error) => {
                         println!("Encountered error: {}", error);
