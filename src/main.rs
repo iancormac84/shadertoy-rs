@@ -137,7 +137,6 @@ fn render(context: &mut Context, gui: &mut Gui) -> Result<(), Box<dyn Error>> {
             .size([400.0, 80.0], Condition::FirstUseEver)
             .build(&ui, || {
                 let preview_value = current_shader.map(|s| ImString::new(s));
-                println!("Preview value: {:?}", preview_value);
 
                 let mut cb = imgui::ComboBox::new(im_str!("Shaders"));
                 if let Some(p) = preview_value.as_ref() {
