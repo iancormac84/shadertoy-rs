@@ -1,3 +1,5 @@
+#![warn(clippy::all)]
+
 extern crate bytemuck;
 extern crate futures;
 extern crate imgui;
@@ -20,7 +22,6 @@ use winit::window::{Window, WindowBuilder};
 
 use bytemuck::{Pod, Zeroable};
 use simple_error::*;
-use std::mem;
 use std::path::*;
 
 //TODO:
@@ -54,33 +55,6 @@ unsafe impl Zeroable for Uniforms {}
 #[derive(Clone, Copy)]
 struct Vertex {
     _pos: [i8; 4],
-}
-
-unsafe impl Pod for Vertex {}
-unsafe impl Zeroable for Vertex {}
-
-fn vertex(pos: [i8; 4]) -> Vertex {
-    Vertex { _pos: pos }
-}
-
-fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
-    let vertex_data = [
-        //bottom left
-        vertex([-1, -1, 0, 1]),
-        //bottom right
-        vertex([1, -1, 0, 1]),
-        //top left
-        vertex([-1, 1, 0, 1]),
-        //top right
-        vertex([1, 1, 0, 1]),
-    ];
-
-    let index_data: &[u16] = &[
-        0, 1, 2, //bottom left half triangle
-        1, 2, 3, //top right triangle
-    ];
-
-    (vertex_data.to_vec(), index_data.to_vec())
 }
 
 fn compile_shader(path: &Path) -> Result<shaderc::CompilationArtifact, Box<dyn Error>> {
@@ -241,9 +215,7 @@ fn render(context: &mut RenderContext, app: &mut App, gui: &mut Gui) -> Result<(
         });
         render_pass.set_pipeline(&context.render_pipeline);
         render_pass.set_bind_group(0, &bind_group, &[]);
-        render_pass.set_index_buffer(context.index_buffer.slice(..));
-        render_pass.set_vertex_buffer(0, context.vertex_buffer.slice(..));
-        render_pass.draw_indexed(0..6, 0, 0..1);
+        render_pass.draw(0..3, 0..1);
 
         let renderer = &mut gui.imgui_renderer;
         renderer
@@ -280,8 +252,6 @@ struct RenderContext {
     pipeline_layout: wgpu::PipelineLayout,
     render_pipeline: wgpu::RenderPipeline,
     swap_chain_descriptor: wgpu::SwapChainDescriptor,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
     swap_chain: wgpu::SwapChain,
     queue: wgpu::Queue,
 }
@@ -316,11 +286,7 @@ fn create_render_pipeline(
         depth_stencil_state: None,
         vertex_state: wgpu::VertexStateDescriptor {
             index_format: wgpu::IndexFormat::Uint16,
-            vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
-                step_mode: wgpu::InputStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Char4],
-            }],
+            vertex_buffers: &[],
         },
         sample_count: 1,
         sample_mask: !0,
@@ -365,20 +331,6 @@ async fn setup(window: Window) -> Result<(RenderContext, App, Gui), Box<dyn Erro
 
     println!("Adapter: {:?}", adapter.get_info());
     println!("Device: {:?}", device);
-
-    //setup data
-    let (vertices, indices) = create_vertices();
-    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: None,
-        contents: bytemuck::cast_slice(&vertices),
-        usage: wgpu::BufferUsage::VERTEX,
-    });
-
-    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: None,
-        contents: bytemuck::cast_slice(&indices),
-        usage: wgpu::BufferUsage::INDEX,
-    });
 
     let vertex_shader_text = std::fs::read_to_string("src/shader.vert")?;
 
@@ -488,8 +440,6 @@ async fn setup(window: Window) -> Result<(RenderContext, App, Gui), Box<dyn Erro
             render_pipeline,
             swap_chain_descriptor,
             swap_chain,
-            vertex_buffer,
-            index_buffer,
             queue,
         },
         App {
